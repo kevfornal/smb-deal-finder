@@ -9,6 +9,9 @@ on:
 jobs:
   scan-deals:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # Grants write access to commit & push smb_listings_history.json
+      
     steps:
       - name: Checkout repository code
         uses: actions/checkout@v4
