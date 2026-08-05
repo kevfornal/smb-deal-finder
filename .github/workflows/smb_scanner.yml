@@ -35,5 +35,11 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+          
+          # Create an empty JSON file if Python script didn't generate one yet
+          if [ ! -f smb_listings_history.json ]; then
+            echo "{}" > smb_listings_history.json
+          fi
+
           git add smb_listings_history.json
           git diff --quiet && git diff --staged --quiet || (git commit -m "Update smb_listings_history.json [skip ci]" && git push)
