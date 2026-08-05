@@ -4,13 +4,14 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import requests
+from bs4 import BeautifulSoup
 
 # ==============================================================================
 # STATIC BUY-BOX CRITERIA
 # ==============================================================================
 MIN_CASH_FLOW = 100_000         # Min Annual Net Profit / Cash Flow ($100k)
 MIN_PRICE = 500_000             # Min Asking Price ($500k)
-MAX_PRICE = 2_000_000           # Max Asking Price ($2M)
+MAX_PRICE = 2_000_000           # Max Asking Price ($2,000,000)
 MIN_YEARS_ESTABLISHED = 5       # Min Established Age (5+ Years)
 MIN_CF_MULTIPLE = 2.0           # Min Cash Flow Multiple (2.0x)
 MAX_CF_MULTIPLE = 4.0           # Max Cash Flow Multiple (4.0x)
@@ -21,7 +22,8 @@ SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
 SMTP_USER = os.environ.get("SMTP_USER")
 SMTP_PASS = os.environ.get("SMTP_PASS")
 RECIPIENT_EMAIL = os.environ.get("RECIPIENT_EMAIL")
-HISTORY_FILE = "listings_history.json"
+ACQUIRE_COOKIE = os.environ.get("ACQUIRE_COOKIE")
+HISTORY_FILE = "smb_listings_history.json"
 
 
 def parse_numeric(value):
@@ -59,32 +61,92 @@ def meets_buy_box_criteria(deal):
     return True, "Matches Buy-Box"
 
 
-def fetch_scraped_listings():
-    """
-    Placeholder aggregator for web scrapers/APIs (Acquire.com, BizBuySell, etc.)
-    Replace/expand this block with real site scrapers or API payloads.
-    """
-    # Sample structure of retrieved deals
-    return [
-        {
-            "id": "acq_101",
-            "title": "B2B SaaS - Workflow Automation",
-            "price": "$850,000",
-            "cash_flow": "$260,000",
-            "years_established": 6,
-            "link": "https://acquire.com",
-            "source": "Acquire.com"
-        }
-    ]
+def fetch_smb_market_listings():
+    """Scrapes listings from SMB market channels."""
+    deals = []
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    
+    # Target listing endpoint
+    url = "https://smb.co/businesses-for-sale"
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            for card in soup.select('.listing-card, .business-card, tr.listing'):
+                title_el = card.select_one('.title, .listing-title, h3')
+                price_el = card.select_one('.price, .asking-price')
+                cf_el = card.select_one('.cash-flow, .sde')
+                link_el = card.select_one('a')
+
+                if title_el and link_el:
+                    link = link_el['href']
+                    if not link.startswith('http'):
+                        link = f"https://smb.co{link}"
+                    
+                    deals.append({
+                        "id": f"smb_{abs(hash(link))}",
+                        "source": "SMB.co",
+                        "title": title_el.text.strip(),
+                        "price": price_el.text.strip() if price_el else "N/A",
+                        "cash_flow": cf_el.text.strip() if cf_el else "N/A",
+                        "years_established": 5, # Default fallback if unlisted
+                        "link": link
+                    })
+    except Exception as e:
+        print(f"Error scraping SMB market: {e}")
+    return deals
+
+
+def fetch_acquire_listings():
+    """Fetches public/authenticated listings from Acquire.com API."""
+    deals = []
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    if ACQUIRE_COOKIE:
+        headers['Cookie'] = ACQUIRE_COOKIE
+
+    url = "https://app.acquire.com/api/listings/search"
+    payload = {
+        "askingPriceMin": MIN_PRICE,
+        "askingPriceMax": MAX_PRICE,
+        "profitMin": MIN_CASH_FLOW
+    }
+
+    try:
+        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            listings = data.get('listings', [])
+            for item in listings:
+                deals.append({
+                    "id": f"acq_{item.get('id', item.get('_id'))}",
+                    "source": "Acquire.com",
+                    "title": item.get('title', 'Acquire SaaS / Business'),
+                    "price": f"${item.get('askingPrice', 0):,}",
+                    "cash_flow": f"${item.get('profit', 0):,}",
+                    "years_established": item.get('ageInYears', 5),
+                    "link": f"https://app.acquire.com/listing/{item.get('id')}"
+                })
+    except Exception as e:
+        print(f"Error fetching Acquire listings: {e}")
+        
+    return deals
+
+
+def fetch_all_listings():
+    """Aggregates listings across target platforms."""
+    all_deals = []
+    all_deals.extend(fetch_smb_market_listings())
+    all_deals.extend(fetch_acquire_listings())
+    return all_deals
 
 
 def send_email_alert(new_matches):
-    """Formats and sends email notifications for new matching deals."""
+    """Sends email alert when new matching listings are discovered."""
     if not new_matches or not SMTP_USER or not SMTP_PASS:
-        print("No new matches or missing SMTP settings. Skipping email.")
+        print("No new matches or missing SMTP settings. Skipping email notification.")
         return
 
-    subject = f"🎯 {len(new_matches)} New Business Deal(s) Matching Your Buy-Box!"
+    subject = f"🚨 {len(new_matches)} New SMB Deal(s) Found Matching Your Buy-Box!"
     body = "<h2>Matching Deal Summary</h2><ul>"
     
     for deal in new_matches:
@@ -112,32 +174,36 @@ def send_email_alert(new_matches):
 
 
 def main():
-    # Load past deal history
     if os.path.exists(HISTORY_FILE):
         with open(HISTORY_FILE, 'r') as f:
-            history = json.load(f)
+            try:
+                history = json.load(f)
+            except json.JSONDecodeError:
+                history = {}
     else:
         history = {}
 
-    raw_listings = fetch_scraped_listings()
+    raw_listings = fetch_all_listings()
     new_matches = []
 
     for deal in raw_listings:
         deal_id = deal['id']
         if deal_id in history:
-            continue  # Already processed
+            continue
 
         is_match, reason = meets_buy_box_criteria(deal)
         if is_match:
-            print(f"MATCH: {deal['title']}")
+            print(f"🎯 MATCH: {deal['title']} ({deal['price']})")
             history[deal_id] = deal
             new_matches.append(deal)
+        else:
+            print(f"Skipped {deal.get('title', 'Deal')}: {reason}")
 
     # Save updated history
     with open(HISTORY_FILE, 'w') as f:
         json.dump(history, f, indent=2)
 
-    # Send alerts if new deals found
+    # Trigger alert if new matches exist
     if new_matches:
         send_email_alert(new_matches)
 
