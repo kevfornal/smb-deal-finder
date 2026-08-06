@@ -11,10 +11,10 @@ from bs4 import BeautifulSoup
 # ==============================================================================
 MIN_CASH_FLOW = 100_000         # Min Annual Net Profit / Cash Flow ($100k)
 MIN_PRICE = 500_000             # Min Asking Price ($500k)
-MAX_PRICE = 2_000_000           # Max Asking Price ($2,000,000)
+MAX_PRICE = 8_000_000           # Max Asking Price ($2,000,000)
 MIN_YEARS_ESTABLISHED = 5       # Min Established Age (5+ Years)
 MIN_CF_MULTIPLE = 2.0           # Min Cash Flow Multiple (2.0x)
-MAX_CF_MULTIPLE = 4.0           # Max Cash Flow Multiple (4.0x)
+MAX_CF_MULTIPLE = 10.0           # Max Cash Flow Multiple (4.0x)
 
 # CONFIGURATION FROM SECRETS
 SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
