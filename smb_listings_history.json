@@ -1,1 +1,13 @@
-{}
+{
+  "live_discovery_001": {
+    "id": "live_discovery_001",
+    "source": "SMB Pipeline Test",
+    "title": "Commercial Equipment Leasing & Services",
+    "price": "$850,000",
+    "cash_flow": "$240,000",
+    "years_established": 7,
+    "link": "https://smb.co",
+    "calculated_multiple": "3.54x",
+    "calculated_yield": "28.2%"
+  }
+}
